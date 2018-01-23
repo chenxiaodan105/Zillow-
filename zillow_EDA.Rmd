@@ -1,0 +1,366 @@
+---
+title: "zillow by Xiaodan"
+author: "Xiaodan Chen"
+date: "2017Äê12ÔÂ28ÈÕ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##1.Define Problem
+####Given new data to predict its logerror, which is the log of estimated house price minus the log of real sales price.
+
+
+##2.Clean Data
+```{r}
+#load data
+setwd("F:/tiger/zillow")
+train<-read.csv('train_property.csv',stringsAsFactors = F)
+
+#remove variables with missing values more than 20%
+NA_rate<-colMeans(sapply(train,is.na))
+remain_col<-names(train)[which(NA_rate<.2)]
+train2<-train[,remain_col]
+train2<-train2[,-1]
+#remained variables
+names(train2)
+head(train2)
+```
+
+```{r}
+#missing rate of the remained variables from the highest to the lowest
+miss<-data.frame(var=remain_col,NA_rate=NA_rate[remain_col],row.names = NULL,stringsAsFactors = F)
+miss<-miss[order(miss$NA_rate,decreasing = T),]
+library(ggplot2)
+ggplot(miss,aes(x=reorder(var,-NA_rate),y=NA_rate))+geom_bar(stat='identity',fill='red')+
+  labs(x='remained variables',title='missing rate of the remained variables')+
+  theme(axis.text.x = element_text(angle=90,hjust=1))
+```
+
+```{r}
+str(train2)
+```
+##3.Explore data
+
+The original train dataset has 90275 observations and 61 variables. After removing data with missing rate more than 20%, 31 variables are remained.
+
+Among these 31 variables, 18 are continuous variables. Except the outcome variablE logerror, the other 17 variables can be grouped into 5 categories.
+
+1) room count related variables: bathroomcnt, bedroomcnt, caculatedbathnbr, fullbathcnt, roomcnt
+
+2) house size related variables: calculatedfinishedsquarefeet, finishedsquarefeet12, lotsizesquarefeet
+
+3) house location related: longitute, latitute
+
+4)house value related: taxvaluedollarcnt, landtaxvaluedollarcnt,  taxamount,structuretaxvaluedollarcnt
+
+5) date related:  yearbuilt, transactiondate , assessmentyear
+
+
+
+There are 13 categorical variables:
+1) parcelid
+
+2) house adress related: fips, regionidcity, regionidcounty, regionidzip
+
+3) house feature related: hashottuborspa, fireplaceflag
+
+4) property use variable: propertycountylandusecode, propertyzoningdesc,  propertylandusetypeid
+
+5) tax : taxdelinquencyflag
+
+6) census track and block variables: censustractandblock and rawcensustractandblock
+
+
+##3.1 Univariate analysis
+####3.11 the outcome variable: logerror
+```{r}
+summary(train2$logerror)
+plot(density(train2$logerror),main='logerror')
+```
+Findings: in general, the logerror between estimated house price and the actual sale price is very small
+
+
+####3.12 Continuous variable
+Roomcount related
+
+```{r}
+names(train2)
+summary(train2[,c(4,5,6,10,22)])
+```
+
+```{r}
+par(mfrow=c(2,3))
+hist(train2[,4],xlab='bathroomcnt',main='number of bathroom')
+hist(train2[,5],xlab='bedroomcnt',main='number of bedroom')
+hist(train2[,6],xlab='calculatedbathnbr',main='number of calculatedbathnbr')
+hist(train2[,10],xlab='fullbathcnt',main='number o fullbathcnt')
+hist(train2[,22],xlab='roomcnt',main='number of roomcnt')
+```
+Findings: 
+1) the distribution of bathroom and bedroom are positively skewed
+2) most houses have less than 5 bedroom and bathrooms
+3) apart from some houses with only one room, a lot of houses have 5~8 rooms in total
+4) bathroomcnt, bedroomcnt and roomcnt have better data quality cuz they do not have NAs
+
+####House size related
+```{r}
+summary(train2[,c(7,8,14)])
+par(mfrow=c(1,3))
+hist(train2[,7],xlab='calculatedfinishedsquarefeet',main='calculatedfinishedsquarefeet')
+hist(train2[,8],xlab='finishedsquarefeet12',main='finishedsquarefeet12')
+hist(train2[,14],xlab='lotsizesquarefeet',main='area of the lot')
+
+```
+
+####House location related variables
+```{r}
+summary(train2[,c(12,13)])
+par(mfrow=c(1,2))
+hist(train2[,12],main='latitute')
+hist(train2[,13],main='longtitue')
+```
+
+
+####House value related variables
+```{r}
+summary(train2[,c(25,26,28,29)])
+par(mfrow=c(2,2))
+hist(train2[,25],xlab='structuretaxvaluedollarcnt',main='structure tax value')
+hist(train2[,26],xlab='taxvaluedollarcnt',main='total tax')
+hist(train2[,28],xlab='landtaxvaluedollarcnt',main='land tax')
+hist(train2[,28],xlab='taxamount',main='tax assesed for the year')
+
+```
+####Date variables
+```{r}
+#convert transactiondate from character to date format and create a new variable transdate to store it
+train2$transDate<-as.Date(train2$transactiondate,'%Y-%m-%d')
+summary(train2[,c(23,27,32)])
+str(train2[,c(23,27,32)])
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+hist(train2[,23],xlab='yearbuilt',main='yearbuilt')
+hist(train2[,32],xlab='transDate',main='transDate',breaks='months')
+```
+
+####3.1.3categorical variables
+House adress related variables
+```{r}
+#fips distribution
+table(train2$fips)/nrow(train2)
+#6037 for LA county, 6059 for Orange county and 6111 for ventura
+```
+
+```{r}
+#city distribution
+#table(train2$regionidcity)
+
+#county distribution
+#table(train2$regionidcounty)
+
+#zip
+#table(train2$regionidzip)
+```
+
+####House feature variable
+```{r}
+table(train2$hashottuborspa)/nrow(train2)
+table(train2$fireplaceflag)/nrow(train2)
+
+```
+
+Findings: very few houses have fireplace or spa tub
+
+####propertyuse variable
+```{r}
+table(train2$propertycountylandusecode)
+
+```
+
+
+```{r}
+#table(train2$propertyzoningdesc)
+```
+
+####tax related
+```{r}
+table(train2$taxdelinquencyflag)/nrow(train2)
+
+```
+Findings:2% of the houses have tax delinquency
+
+##3.2 Bivariate analysis
+####3.2.1 continuous vs outcome
+```{r}
+corr<-cor(train2[,c(2,4:8,10,12:14,22,23,25,26,28,29)],use='pairwise.complete.obs')
+library(corrplot)
+corrplot(corr)
+
+
+```
+
+
+```{r}
+cor_logerror<-sort(corr[,1],decreasing = T)
+cor_logerror
+
+#corelations are all soooo weak
+
+```
+
+```{r}
+#show corelation between each variable and the logerror
+par(mfrow=c(4,2))
+plot(train2$finishedsquarefeet12,train2$logerror)
+plot(train2$calculatedfinishedsquarefeet,train2$logerror)
+plot(train2$calculatedbathnbr,train2$logerror)
+plot(train2$fullbathcnt,train2$logerror)
+plot(train2$bathroomcnt,train2$logerror)
+plot(train2$bedroomcnt,train2$logerror)
+plot(train2$structuretaxvaluedollarcnt,train2$logerror)
+
+```
+the points are randomly scattered and indicates the corelation is weak
+
+####correlation between the transDate and the logerror
+```{r}
+library(lattice)
+train2$transMonth<-sapply(strsplit(train2$transactiondate,'-'),function(x) x[2])
+bwplot(logerror~transMonth,data=train2,xlab='month')
+bwplot(logerror[which(abs(logerror)<0.05)]~transMonth,data=train2,xlab='month')
+```
+
+
+```{r}
+err.month<-by(train2,train2$transMonth,function(x){return(mean(x$logerror))})
+plot(names(err.month),err.month,type='l',xlab='month',ylab='average error')
+```
+
+
+Findings: distributon of logerror is similar, but average logerror differs in the month of april, may, june
+
+####transaction day with logerror
+```{r}
+train2$transDay<-sapply(strsplit(train2$transactiondate,'-'),function(x) x[3])
+err.day<-by(train2,train2$transDay,function(x){return(mean(x$logerror))})
+plot(names(err.day),err.day,type='l',xlab='day',ylab='average logerror')
+```
+
+
+####3.2.2categorical variables vs outcome
+For categorical variables , I would explore the relationship between the logerror and the fips, hashottuborspa,fireplaceflag,propertylanusetypeid, taxdelinquency
+```{r}
+library(lattice)
+library(gridExtra)
+fipsPlot1<-bwplot(logerror~as.character(fips),data=train2,xlab='fips')
+fipsPlot2<-bwplot(logerror~as.character(fips),data=subset(train2,abs(logerror)<.05),
+                  xlab='fips with logerror less than 0.05')
+grid.arrange(fipsPlot1,fipsPlot2,ncol=2)
+
+```
+
+
+
+```{r}
+spaPlot1<-bwplot(logerror~hashottuborspa,data=train2,xlab='hashottuborspa')
+spaPlot2<-bwplot(logerror~hashottuborspa,data=subset(train2,abs(logerror)<.05),
+                  xlab='hashottuborspa with logerror less than 0.05')
+grid.arrange(spaPlot1,spaPlot2,ncol=2)
+```
+
+```{r}
+firePlot1<-bwplot(logerror~fireplaceflag,data=train2,xlab='fireplaceflag')
+firePlot2<-bwplot(logerror~fireplaceflag,data=subset(train2,abs(logerror)<.05),
+                                                     xlab='fireplace with logerror less tha 0.05')
+grid.arrange(firePlot1,firePlot2,ncol=2)
+
+
+
+```
+
+
+
+```{r}
+taxPlot1<-bwplot(logerror~taxdelinquencyflag,data=train2,xlab='taxdelinquency')
+taxPlot2<-bwplot(logerror~taxdelinquencyflag,data=subset(train2,abs(logerror)<.05),
+                              xlab='taxdelinquency with logerror less tha 0.05')
+grid.arrange(taxPlot1,taxPlot2,ncol=2)
+
+```
+
+
+```{r}
+landPlot1<-bwplot(logerror~as.character(propertylandusetypeid),data=train2,xlab='landtype')
+landPlot2<-bwplot(logerror~as.character(propertylandusetypeid),data=subset(train2,abs(logerror)<.05),
+                              xlab='landtype with logerror less tha 0.05')
+grid.arrange(landPlot1,landPlot2,ncol=2)
+
+```
+
+```{r}
+anova(with(train2,lm(logerror~as.character(fips))))
+```
+```{r}
+anova(with(train2,lm(logerror~as.character(propertylandusetypeid))))
+```
+
+```{r}
+anova(with(train2,lm(logerror~hashottuborspa)))
+```
+
+```{r}
+anova(with(train2,lm(logerror~fireplaceflag)))
+
+```
+
+```{r}
+anova(with(train2,lm(logerror~taxdelinquencyflag)))
+```
+Findings: taxdelinquence, fips and propertylandusetypeid really matters
+
+####3.2.3 create new variables
+number of houses sold by city
+```{r}
+#calculate the number of houses sold by city
+library(plyr)
+house.city<-ddply(train2,.(regionidcity),summarise,cityhousecnt=length(regionidcity))
+
+train3<-merge(train2,house.city,by='regionidcity',all.x=T)
+
+with(train3,plot(cityhousecnt,logerror,main='logerror vs city house count' ))
+
+
+```
+
+```{r}
+train3_sub<-train3[train3$cityhousecnt != max(train3$cityhousecnt),]
+with(train3_sub,plot(cityhousecnt,logerror))
+```
+####number of house sold by zip
+```{r}
+house.zip<-ddply(train2,.(regionidzip),summarise,ziphousecnt=length(regionidzip))
+
+train4<-merge(train2,house.zip,by='regionidzip',all.x=T)
+
+with(train4,plot(ziphousecnt,logerror,main='logerror vs zip house count' ))
+
+cor(train4$ziphousecnt,train$logerror)
+```
+
+
+####community quality
+```{r}
+price.zip<-ddply(train4,.(regionidzip),summarize,avgtax=mean(taxamount,na.rm = T))
+train5<-merge(train4,price.zip,by='regionidzip',all.x=T)
+
+with(train5,plot(avgtax,logerror,main='avgtax vs error ' ))
+
+
+
+```
+
